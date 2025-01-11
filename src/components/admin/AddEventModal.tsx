@@ -15,8 +15,8 @@ const AddEventModal = ({ properties, selectedProperty, onClose, onAdd }: AddEven
     property_id: selectedProperty || '',
     unit_number: '',
     title: '',
-    start_date: '',
-    end_date: '',
+    start_date: new Date().toISOString().split('T')[0],
+    end_date: new Date().toISOString().split('T')[0],
     event_type: 'booking',
     status: 'confirmed',
     notes: ''
@@ -33,26 +33,74 @@ const AddEventModal = ({ properties, selectedProperty, onClose, onAdd }: AddEven
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No authenticated user found');
 
+      if (!formData.property_id) {
+        throw new Error('Please select a property');
+      }
+
+      // Validate dates
+      const startDate = new Date(formData.start_date);
+      const endDate = new Date(formData.end_date);
+      if (endDate < startDate) {
+        throw new Error('End date cannot be before start date');
+      }
+
+      // Check for overlapping events
+      const { data: existingEvents, error: checkError } = await supabase
+        .from('calendar_events')
+        .select('id')
+        .eq('property_id', formData.property_id)
+        .eq('unit_number', formData.unit_number)
+        .or(`start_date.lte.${formData.end_date},end_date.gte.${formData.start_date}`)
+        .not('status', 'eq', 'cancelled');
+
+      if (checkError) throw checkError;
+
+      if (existingEvents && existingEvents.length > 0) {
+        throw new Error('This unit is already booked for the selected dates');
+      }
+
+      // Create the event
       const { data, error: insertError } = await supabase
         .from('calendar_events')
         .insert({
-          ...formData,
+          property_id: formData.property_id,
+          unit_number: formData.unit_number,
+          title: formData.title,
+          start_date: formData.start_date,
+          end_date: formData.end_date,
+          event_type: formData.event_type,
+          status: formData.status,
+          notes: formData.notes,
           created_by: user.id
         })
         .select()
         .single();
 
       if (insertError) throw insertError;
-      if (data) {
-        onAdd(data);
-        onClose();
-      }
+      if (!data) throw new Error('No data returned from insert');
+
+      onAdd(data);
+      onClose();
     } catch (err) {
       console.error('Error adding event:', err);
-      setError('Failed to add event. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to add event');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Get unit number from selected property
+  const selectedPropertyData = properties.find(p => p.id === formData.property_id);
+  const defaultUnitNumber = selectedPropertyData?.unit_number || '';
+
+  // Update unit number when property changes
+  const handlePropertyChange = (propertyId: string) => {
+    const property = properties.find(p => p.id === propertyId);
+    setFormData(prev => ({
+      ...prev,
+      property_id: propertyId,
+      unit_number: property?.unit_number || ''
+    }));
   };
 
   return (
@@ -82,13 +130,13 @@ const AddEventModal = ({ properties, selectedProperty, onClose, onAdd }: AddEven
             <select
               required
               value={formData.property_id}
-              onChange={(e) => setFormData({ ...formData, property_id: e.target.value })}
+              onChange={(e) => handlePropertyChange(e.target.value)}
               className="w-full px-4 py-2 bg-dark-700 border border-dark-600 rounded-lg text-white focus:outline-none focus:border-primary-500"
             >
               <option value="">Select a property</option>
               {properties.map(property => (
                 <option key={property.id} value={property.id}>
-                  {property.name}
+                  {property.name} {property.unit_number ? `(${property.unit_number})` : ''}
                 </option>
               ))}
             </select>
