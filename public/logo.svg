@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="120" height="32" viewBox="0 0 120 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M20 8L28 16L20 24" stroke="#C084FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M4 16H28" stroke="#C084FC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="40" y="22" font-family="Arial" font-size="18" font-weight="bold" fill="#C084FC">Kirra</text>
+</svg>
