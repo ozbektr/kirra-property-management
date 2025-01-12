@@ -51,17 +51,14 @@ const SignUp = () => {
     try {
       setLoading(true);
 
-      // First, ensure no existing session
-      await supabase.auth.signOut();
-
-      // Check if profile already exists
-      const { data: existingProfile } = await supabase
+      // First, check if user exists
+      const { data: existingUser } = await supabase
         .from('profiles')
         .select('id')
         .eq('email', formData.email)
         .maybeSingle();
 
-      if (existingProfile) {
+      if (existingUser) {
         setError('An account with this email already exists. Please sign in instead.');
         return;
       }
@@ -75,43 +72,13 @@ const SignUp = () => {
             role: formData.role,
             company_name: formData.companyName,
             phone: formData.phone
-          }
+          },
+          emailRedirectTo: `${window.location.origin}/login`
         }
       });
 
-      if (signUpError) {
-        if (signUpError.message?.includes('already registered')) {
-          setError('An account with this email already exists. Please sign in instead.');
-          return;
-        }
-        throw signUpError;
-      }
-
-      if (!signUpData.user) {
-        throw new Error('Failed to create account');
-      }
-
-      // Create profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({
-          id: signUpData.user.id,
-          email: formData.email,
-          company_name: formData.companyName,
-          phone: formData.phone,
-          role: formData.role,
-          is_admin: false
-        }, {
-          onConflict: 'id',
-          ignoreDuplicates: false
-        });
-
-      if (profileError) {
-        console.error('Profile creation error:', profileError);
-        // Clean up on profile creation failure
-        await supabase.auth.signOut();
-        throw new Error('Failed to create user profile. Please try again.');
-      }
+      if (signUpError) throw signUpError;
+      if (!signUpData.user) throw new Error('Failed to create account');
 
       // Handle admin request if needed
       if (formData.role === 'admin') {
@@ -128,31 +95,12 @@ const SignUp = () => {
         if (requestError) {
           console.error('Admin request creation error:', requestError);
         }
-
-        // Notify admin
-        const { error: notifError } = await supabase
-          .from('notifications')
-          .insert({
-            user_id: signUpData.user.id,
-            title: 'New Admin Request',
-            content: `New admin request from ${formData.email} (${formData.companyName})`,
-            type: 'admin_request'
-          });
-
-        if (notifError) {
-          console.error('Notification creation error:', notifError);
-        }
       }
-
-      // Ensure clean state
-      await supabase.auth.signOut();
 
       // Redirect with appropriate message
       navigate('/login', { 
         state: { 
-          message: formData.role === 'admin'
-            ? 'Your admin request has been submitted and is pending approval. You will receive an email notification once approved.'
-            : 'Account created successfully! Please sign in.'
+          message: 'Please check your email to verify your account. Once verified, you can sign in.'
         }
       });
     } catch (err) {
@@ -162,13 +110,6 @@ const SignUp = () => {
         setError(err.message);
       } else {
         setError('An unexpected error occurred. Please try again.');
-      }
-
-      // Clean up on error
-      try {
-        await supabase.auth.signOut();
-      } catch (cleanupError) {
-        console.error('Error during cleanup:', cleanupError);
       }
     } finally {
       setLoading(false);
