@@ -266,6 +266,7 @@ const SignUp = () => {
             />
           </div>
 
+
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-dark-300">
               Password
