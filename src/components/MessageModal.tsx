@@ -11,6 +11,7 @@ interface Message {
   created_at: string;
   read: boolean;
   mentions?: string[];
+  lead_id: string;
 }
 
 interface Profile {
@@ -32,28 +33,41 @@ const MessageModal = ({ lead, onClose }: MessageModalProps) => {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [cursorPosition, setCursorPosition] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadMessages();
     loadProfiles();
     
-    const subscription = supabase
-      .channel('messages')
+    // Subscribe to new messages
+    const channel = supabase
+      .channel(`messages:${lead.id}`)
       .on('postgres_changes', { 
-        event: 'INSERT', 
+        event: '*', 
         schema: 'public', 
         table: 'messages',
         filter: `lead_id=eq.${lead.id}`
-      }, payload => {
-        const newMessage = payload.new as Message;
-        setMessages(current => [...current, newMessage]);
-      })
+      }, handleNewMessage)
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      channel.unsubscribe();
     };
   }, [lead.id]);
+
+  const handleNewMessage = (payload: any) => {
+    if (payload.eventType === 'INSERT') {
+      const newMessage = payload.new as Message;
+      setMessages(current => [...current, newMessage]);
+      scrollToBottom();
+    }
+  };
+
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
 
   const loadMessages = async () => {
     try {
@@ -64,7 +78,10 @@ const MessageModal = ({ lead, onClose }: MessageModalProps) => {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      if (data) setMessages(data);
+      if (data) {
+        setMessages(data);
+        scrollToBottom();
+      }
     } catch (error) {
       console.error('Error loading messages:', error);
     }
@@ -87,7 +104,6 @@ const MessageModal = ({ lead, onClose }: MessageModalProps) => {
     const value = e.target.value;
     setNewMessage(value);
     
-    // Handle @ mentions
     const curPos = e.target.selectionStart || 0;
     setCursorPosition(curPos);
     
@@ -117,55 +133,80 @@ const MessageModal = ({ lead, onClose }: MessageModalProps) => {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
+    const messageContent = newMessage.trim();
+    if (!messageContent) return;
 
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
 
-      const mentions = extractMentions(newMessage);
+      const mentions = extractMentions(messageContent);
       
-      const { data, error } = await supabase
+      // Optimistically add message to UI
+      const optimisticMessage: Message = {
+        id: crypto.randomUUID(),
+        content: messageContent,
+        sender_id: user.id,
+        created_at: new Date().toISOString(),
+        read: false,
+        mentions,
+        lead_id: lead.id
+      };
+      
+      setMessages(current => [...current, optimisticMessage]);
+      setNewMessage(''); // Clear input immediately
+      scrollToBottom();
+
+      // Send message to server
+      const { error: messageError } = await supabase
         .from('messages')
         .insert({
-          content: newMessage.trim(),
+          content: messageContent,
           lead_id: lead.id,
           sender_id: user.id,
-          mentions
-        })
-        .select()
-        .single();
+          mentions,
+          read: false
+        });
 
-      if (error) throw error;
-      
-      if (data) {
-        setMessages(current => [...current, data]);
-        
-        // Send notifications for mentions
-        if (mentions.length > 0) {
-          const { error: notifError } = await supabase
-            .from('notifications')
-            .insert(
-              mentions.map(email => ({
-                user_id: profiles.find(p => p.email === email)?.id,
+      if (messageError) throw messageError;
+
+      // Handle mentions notifications
+      if (mentions.length > 0) {
+        const notificationPromises = mentions.map(email => {
+          const mentionedUser = profiles.find(p => p.email === email);
+          if (mentionedUser) {
+            return supabase
+              .from('notifications')
+              .insert({
+                user_id: mentionedUser.id,
                 title: 'New Mention',
                 content: `You were mentioned in a message by ${user.email}`,
                 type: 'mention',
                 lead_id: lead.id
-              }))
-            );
+              });
+          }
+          return Promise.resolve();
+        });
 
-          if (notifError) console.error('Error sending notifications:', notifError);
-        }
+        await Promise.all(notificationPromises);
       }
-      
-      setNewMessage('');
     } catch (error) {
       console.error('Error sending message:', error);
+      // Remove optimistic message on error
+      setMessages(current => current.filter(msg => msg.id !== crypto.randomUUID()));
+      setNewMessage(messageContent); // Restore message content
     } finally {
       setLoading(false);
     }
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString(undefined, {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   return (
@@ -207,11 +248,12 @@ const MessageModal = ({ lead, onClose }: MessageModalProps) => {
                   ))}
                 </p>
                 <span className="text-xs text-dark-400 mt-1 block">
-                  {new Date(message.created_at).toLocaleTimeString()}
+                  {formatTime(message.created_at)}
                 </span>
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
 
         <form onSubmit={sendMessage} className="p-4 border-t border-dark-700">
