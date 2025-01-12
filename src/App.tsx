@@ -14,6 +14,7 @@ import Help from './components/Help';
 import Admin from './components/Admin';
 import Leads from './components/Leads';
 import Transactions from './components/Transactions';
+import WhatsApp from './components/admin/WhatsApp';
 import Login from './components/auth/Login';
 import SignUp from './components/auth/SignUp';
 import ForgotPassword from './components/auth/ForgotPassword';
@@ -164,6 +165,18 @@ function App() {
                 isAuthenticated ? (
                   <AppLayout>
                     <Transactions />
+                  </AppLayout>
+                ) : (
+                  <Navigate to="/login" />
+                )
+              }
+            />
+            <Route
+              path="/whatsapp"
+              element={
+                isAuthenticated ? (
+                  <AppLayout>
+                    <WhatsApp />
                   </AppLayout>
                 ) : (
                   <Navigate to="/login" />

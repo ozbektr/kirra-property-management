@@ -8,7 +8,8 @@ import {
   HelpCircle,
   Settings,
   Users,
-  DollarSign
+  DollarSign,
+  MessageSquare
 } from 'lucide-react';
 import MenuItem from './MenuItem';
 import UserMenu from './UserMenu';
@@ -63,6 +64,11 @@ const Sidebar = () => {
                 icon={DollarSign} 
                 label="Transactions" 
                 to="/transactions"
+              />
+              <MenuItem 
+                icon={MessageSquare} 
+                label="WhatsApp" 
+                to="/whatsapp"
               />
             </>
           )}
